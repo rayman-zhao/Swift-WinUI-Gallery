@@ -12,11 +12,11 @@ let GUILinkerSettings: [LinkerSetting] = [
 let package = Package(
     name: "Swift-WinUI-Gallery",
     dependencies: [
-        .package(url: "https://github.com/rayman-zhao/swift-cwinrt", branch: "main"),
-        .package(url: "https://github.com/rayman-zhao/swift-windowsfoundation", branch: "main"),
-        .package(url: "https://github.com/rayman-zhao/swift-uwp", branch: "main"),
-        .package(url: "https://github.com/rayman-zhao/swift-windowsappsdk", branch: "main"),
-        .package(url: "https://github.com/rayman-zhao/swift-winui", branch: "main"),
+        .package(url: "https://github.com/rayman-zhao/swift-cwinrt", branch: "wasdk1.8"),
+        .package(url: "https://github.com/rayman-zhao/swift-windowsfoundation", branch: "wasdk1.8"),
+        .package(url: "https://github.com/rayman-zhao/swift-uwp", branch: "wasdk1.8"),
+        .package(url: "https://github.com/rayman-zhao/swift-windowsappsdk", branch: "wasdk1.8"),
+        .package(url: "https://github.com/rayman-zhao/swift-winui", branch: "wasdk1.8"),
     ],
     targets: [
         .executableTarget(
