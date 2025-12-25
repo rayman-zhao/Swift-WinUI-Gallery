@@ -10,11 +10,10 @@ class MainWindow: Window, @unchecked Sendable {
     private let viewModel: MainWindowViewModel
 
     private var rootGrid: Grid
-    private var titleBar: TitleBar
+    private var titleBarGrid: Grid  // ✅ 改用Grid分区，明确控制拖拽区域
     private var navigationView: NavigationView
     private var tabView: TabView
 
-    // ✅ 单 tab 模式显示用（不做 UIElement 搬家，只显示“新实例页面”）
     private var singleFrameHost: Frame
     private var contentHost: Grid
     private var isSingleTabMode: Bool = false
@@ -22,26 +21,28 @@ class MainWindow: Window, @unchecked Sendable {
     private var controlsSearchBox: AutoSuggestBox
     private var currentPageTextBlock: TextBlock
 
-    private var forwardStack: [any Category] = []
+    private var forwardStack: [String] = []
     private var forwardButton: Button
     private var backButton: Button
-    private var stack: [any Category] = []
+    private var stack: [String] = []
+    private var appIconImage: Image
+    private var avatarBorder: Border
     
-
-    /// ✅ 由 NavigationViewItem.pointerPressed 捕获 Ctrl 状态
     private var openInNewTabRequested: Bool = false
 
     // MARK: - Initialization
     override init() {
         self.viewModel = MainWindowViewModel()
         self.rootGrid = Grid()
+        self.titleBarGrid = Grid()
         self.navigationView = NavigationView()
         self.tabView = TabView()
-        self.titleBar = TitleBar()
         self.controlsSearchBox = AutoSuggestBox()
         self.currentPageTextBlock = TextBlock()
         self.backButton = Button()
         self.forwardButton = Button()
+        self.appIconImage = Image()
+        self.avatarBorder = Border()
 
         self.singleFrameHost = Frame()
         self.contentHost = Grid()
@@ -75,206 +76,170 @@ class MainWindow: Window, @unchecked Sendable {
         }
 
         setupRootGrid()
-        setupTitleBar()
+        setupTitleBarGrid()
         setupNavigationView()
     }
 
     private func setupRootGrid() {
         rootGrid.name = "RootGrid"
 
-        let row1 = RowDefinition()
-        row1.height = GridLength(value: 1, gridUnitType: .auto)
-        rootGrid.rowDefinitions.append(row1)
-
-        let row2 = RowDefinition()
-        row2.height = GridLength(value: 1, gridUnitType: .star)
-        rootGrid.rowDefinitions.append(row2)
+        let rowDefinition1 = RowDefinition()
+        rowDefinition1.height = GridLength(value: 48, gridUnitType: .pixel)
+        rootGrid.rowDefinitions.append(rowDefinition1)
+        
+        let rowDefinition2 = RowDefinition()
+        rowDefinition2.height = GridLength(value: 1, gridUnitType: .star)
+        rootGrid.rowDefinitions.append(rowDefinition2)
     }
 
-    private func createImage(
-        height: Double,
-        width: Double,
-        imagePath: String,
-        imageThickness: [Double]
-    ) -> Image {
-        let image = Image()
-        image.height = height
-        image.width = width
-        image.margin = Thickness(
-            left: imageThickness[0],
-            top: imageThickness[1],
-            right: imageThickness[2],
-            bottom: imageThickness[3]
-        )
-        image.stretch = .uniform
+private func setupTitleBarGrid() {
+    titleBarGrid.name = "TitleBarGrid"
+    titleBarGrid.height = 48
+    titleBarGrid.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
 
-        if imagePath.isEmpty { fatalError("imagePath is empty!") }
-        let uri = Uri(imagePath)
-        let bitmapImage = BitmapImage()
-        bitmapImage.uriSource = uri
-        image.source = bitmapImage
-        return image
+    // ✅ 调整为5列布局：左内容 | 左拖拽区 | 搜索+头像 | 右拖拽区 | 右边距
+    let col0 = ColumnDefinition()
+    col0.width = GridLength(value: 1, gridUnitType: .auto)  // 左侧内容
+    titleBarGrid.columnDefinitions.append(col0)
+
+    let col1 = ColumnDefinition()
+    col1.width = GridLength(value: 1, gridUnitType: .star)  // 左侧拖拽区（弹性）
+    titleBarGrid.columnDefinitions.append(col1)
+
+    let col2 = ColumnDefinition()
+    col2.width = GridLength(value: 1, gridUnitType: .auto)  // 搜索框+头像
+    titleBarGrid.columnDefinitions.append(col2)
+
+    let col3 = ColumnDefinition()
+    col3.width = GridLength(value: 1, gridUnitType: .star)  // 右侧拖拽区（弹性）
+    titleBarGrid.columnDefinitions.append(col3)
+
+    // ============ 第0列：左侧内容 ============
+    let leftStack = StackPanel()
+    leftStack.orientation = .horizontal
+    leftStack.verticalAlignment = .center
+    leftStack.spacing = 0
+
+    // App Icon
+    appIconImage.width = 16
+    appIconImage.height = 16
+    appIconImage.margin = Thickness(left: 16, top: 0, right: 8, bottom: 0)
+    appIconImage.verticalAlignment = .center
+    
+    if Bundle.module.path(forResource: "GalleryIcon", ofType: "png", inDirectory: "Assets/Tiles") != nil {
+        let uri = Uri("ms-appx:///Assets/Tiles/GalleryIcon.png")
+        let bitmap = BitmapImage()
+        bitmap.uriSource = uri
+        appIconImage.source = bitmap
     }
 
-    private func setupTitleBar() {
-        titleBar.name = "TitleBar"
-        titleBar.title = ""
+    // Title
+    let titleText = TextBlock()
+    titleText.text = "Swift WinUI 3 Gallery"
+    titleText.fontSize = 14
+    titleText.verticalAlignment = .center
 
-        titleBar.isBackButtonVisible = false
-        titleBar.isPaneToggleButtonVisible = true
+    // Current Page
+    currentPageTextBlock.fontSize = 12
+    currentPageTextBlock.opacity = 0.75
+    currentPageTextBlock.verticalAlignment = .center
+    currentPageTextBlock.margin = Thickness(left: 8, top: 0, right: 16, bottom: 0)
+    currentPageTextBlock.text = ""
 
-        titleBar.paneToggleRequested.addHandler { [weak self] _, _ in
-            guard let self = self else { return }
-            self.navigationView.isPaneOpen.toggle()
-        }
+    // Back Button
+    let backIcon = FontIcon()
+    backIcon.glyph = "\u{E72B}"
+    backIcon.fontSize = 12
 
-        let subtitleReservedWidth: Double = 200   // subtitle 预留宽度（决定按钮固定在更左/更右）
-        let navButtonsLeftGap: Double = 8         // 按钮距离 subtitle 的固定间距（你主要调这个）
-
-        // =========================================================
-        // App icon
-        // =========================================================
-        let appIcon = createImage(
-            height: 16,
-            width: 16,
-            imagePath: Bundle.module.path(
-                forResource: "GalleryIcon",
-                ofType: "ico",
-                inDirectory: "Assets/Tiles"
-            )!,
-            imageThickness: [8, 0, 8, 0]
-        )
-
-        // Title
-        let titleText = TextBlock()
-        titleText.text = "Swift WinUI 3 Gallery"
-        titleText.fontSize = 14
-        titleText.verticalAlignment = .center
-
-        // Subtitle (current page)
-        currentPageTextBlock.fontSize = 12
-        currentPageTextBlock.opacity = 0.75
-        currentPageTextBlock.verticalAlignment = .center
-        currentPageTextBlock.text = ""
-
-        // ✅ 固定 subtitle 占位宽度，避免按钮被文字长度挤来挤去
-        currentPageTextBlock.width = subtitleReservedWidth
-        currentPageTextBlock.textTrimming = .characterEllipsis
-        currentPageTextBlock.margin = Thickness(left: 8, top: 0, right: 0, bottom: 0)
-
-        // =========================================================
-        // ✅ Back / Forward buttons (MDL2 icons, no gap)
-        // =========================================================
-        func makeMdl2Icon(_ glyph: String, fontSize: Double = 12) -> FontIcon {
-            let icon = FontIcon()
-            icon.glyph = glyph
-            icon.fontSize = fontSize
-            icon.verticalAlignment = .center
-            return icon
-        }
-
-        // Segoe MDL2 Assets:
-        // Back    = E72B
-        // Forward = E72A
-        backButton.content = makeMdl2Icon("\u{E72B}")
-        forwardButton.content = makeMdl2Icon("\u{E72A}")
-
-        backButton.verticalAlignment = .center
-        forwardButton.verticalAlignment = .center
-
-        // ✅ 两按钮之间不要留间隙
-        backButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
-        forwardButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
-
-        // （可选）更像标题栏按钮的紧凑手感，可按喜好调整/删除
-        backButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
-        forwardButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
-
-        backButton.isEnabled = false
-        forwardButton.isEnabled = false
-
-        backButton.click.addHandler { [weak self] _, _ in self?.navigateBack() }
-        forwardButton.click.addHandler { [weak self] _, _ in self?.navigateForward() }
-
-        let navButtonsStack = StackPanel()
-        navButtonsStack.orientation = .horizontal
-        navButtonsStack.verticalAlignment = .center
-        navButtonsStack.children.append(backButton)
-        navButtonsStack.children.append(forwardButton)
-
-        // ✅ 按钮距 subtitle 固定距离（你调 navButtonsLeftGap 就行）
-        navButtonsStack.margin = Thickness(left: navButtonsLeftGap, top: 0, right: 0, bottom: 0)
-
-        // =========================================================
-        // ✅ LeftHeader: icon + title + subtitle + nav buttons
-        // =========================================================
-        let leftHeaderStack = StackPanel()
-        leftHeaderStack.orientation = .horizontal
-        leftHeaderStack.verticalAlignment = .center
-        leftHeaderStack.children.append(appIcon)
-        leftHeaderStack.children.append(titleText)
-        leftHeaderStack.children.append(currentPageTextBlock)
-        leftHeaderStack.children.append(navButtonsStack)
-
-        titleBar.leftHeader = leftHeaderStack
-
-        // =========================================================
-        // Content area: drag region + search box (keep your behavior)
-        // =========================================================
-        controlsSearchBox.name = "controlsSearchBox"
-        controlsSearchBox.placeholderText = "Search controls and samples..."
-        controlsSearchBox.verticalAlignment = .center
-        controlsSearchBox.minWidth = 320
-
-        let contentGrid = Grid()
-        let cc0 = ColumnDefinition(); cc0.width = GridLength(value: 1, gridUnitType: .star) // drag region
-        let cc1 = ColumnDefinition(); cc1.width = GridLength(value: 1, gridUnitType: .auto) // search
-        contentGrid.columnDefinitions.append(cc0)
-        contentGrid.columnDefinitions.append(cc1)
-
-        let dragRegion = Border()
-        dragRegion.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
-        dragRegion.verticalAlignment = .stretch
-        dragRegion.horizontalAlignment = .stretch
-
-        contentGrid.children.append(dragRegion)
-        try? Grid.setColumn(dragRegion, 0)
-
-        contentGrid.children.append(controlsSearchBox)
-        try? Grid.setColumn(controlsSearchBox, 1)
-
-        titleBar.content = contentGrid
-
-        // =========================================================
-        // RightHeader: avatar (keep your behavior)
-        // =========================================================
-        let avatar = Border()
-        avatar.width = 32
-        avatar.height = 32
-        avatar.cornerRadius = CornerRadius(topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 16)
-        avatar.verticalAlignment = .center
-        avatar.background = SolidColorBrush(Color(a: 255, r: 240, g: 240, b: 240))
-
-        let avatarText = TextBlock()
-        avatarText.text = "PP"
-        avatarText.verticalAlignment = .center
-        avatarText.horizontalAlignment = .center
-        avatarText.fontSize = 12
-        avatar.child = avatarText
-
-        titleBar.rightHeader = avatar
-
-        // =========================================================
-        // Attach to root + SetTitleBar
-        // =========================================================
-        rootGrid.children.append(titleBar)
-        try? Grid.setRow(titleBar, 0)
-
-        // ✅ 启动就 SetTitleBar
-        try? self.setTitleBar(titleBar)
+    backButton.content = backIcon
+    backButton.verticalAlignment = .center
+    backButton.margin = Thickness(left: 0, top: 0, right: 4, bottom: 0)
+    backButton.width = 40
+    backButton.height = 32
+    backButton.isEnabled = false
+    backButton.click.addHandler { [weak self] _, _ in
+        self?.navigateBack()
     }
 
+    // Forward Button
+    let forwardIcon = FontIcon()
+    forwardIcon.glyph = "\u{E72A}"
+    forwardIcon.fontSize = 12
 
+    forwardButton.content = forwardIcon
+    forwardButton.verticalAlignment = .center
+    forwardButton.margin = Thickness(left: 0, top: 0, right: 12, bottom: 0)
+    forwardButton.width = 40
+    forwardButton.height = 32
+    forwardButton.isEnabled = false
+    forwardButton.click.addHandler { [weak self] _, _ in
+        self?.navigateForward()
+    }
+
+    leftStack.children.append(appIconImage)
+    leftStack.children.append(titleText)
+    leftStack.children.append(currentPageTextBlock)
+    leftStack.children.append(backButton)
+    leftStack.children.append(forwardButton)
+
+    titleBarGrid.children.append(leftStack)
+    try? Grid.setColumn(leftStack, 0)
+
+    // ============ 第1列：左侧拖拽区域 ============
+    let dragRegionLeft = Border()
+    dragRegionLeft.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
+    dragRegionLeft.verticalAlignment = .stretch
+    dragRegionLeft.horizontalAlignment = .stretch
+
+    titleBarGrid.children.append(dragRegionLeft)
+    try? Grid.setColumn(dragRegionLeft, 1)
+
+    // ============ 第2列：搜索框 + 头像（居中） ============
+    let centerStack = StackPanel()
+    centerStack.orientation = .horizontal
+    centerStack.verticalAlignment = .center
+    centerStack.spacing = 8
+
+    // Search Box
+    controlsSearchBox.name = "controlsSearchBox"
+    controlsSearchBox.placeholderText = "Search controls and samples..."
+    controlsSearchBox.verticalAlignment = .center
+    controlsSearchBox.minWidth = 320
+
+    // Avatar
+    avatarBorder.width = 32
+    avatarBorder.height = 32
+    avatarBorder.cornerRadius = CornerRadius(topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 16)
+    avatarBorder.verticalAlignment = .center
+    avatarBorder.background = SolidColorBrush(Color(a: 255, r: 100, g: 100, b: 250))
+
+    let avatarText = TextBlock()
+    avatarText.text = "PP"
+    avatarText.verticalAlignment = .center
+    avatarText.horizontalAlignment = .center
+    avatarText.fontSize = 12
+    avatarText.foreground = SolidColorBrush(Color(a: 255, r: 255, g: 255, b: 255))
+    avatarBorder.child = avatarText
+
+    centerStack.children.append(controlsSearchBox)
+    centerStack.children.append(avatarBorder)
+
+    titleBarGrid.children.append(centerStack)
+    try? Grid.setColumn(centerStack, 2)
+
+    // ============ 第3列：右侧拖拽区域 ============
+    let dragRegionRight = Border()
+    dragRegionRight.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
+    dragRegionRight.verticalAlignment = .stretch
+    dragRegionRight.horizontalAlignment = .stretch
+
+    titleBarGrid.children.append(dragRegionRight)
+    try? Grid.setColumn(dragRegionRight, 3)
+
+    // 添加到根Grid
+    rootGrid.children.append(titleBarGrid)
+    try? Grid.setRow(titleBarGrid, 0)
+}
 
     // MARK: - Ctrl 检测
 
@@ -333,12 +298,10 @@ class MainWindow: Window, @unchecked Sendable {
         tabView.canReorderTabs = true
         tabView.allowDrop = true
 
-        // ✅ host：单 tab 时显示 singleFrameHost，多 tab 时显示 tabView
         contentHost = Grid()
         contentHost.children.append(tabView)
         contentHost.children.append(singleFrameHost)
 
-        // 默认先让 tabView 可见，后续 updateTabVisibility 决定
         tabView.visibility = .visible
         singleFrameHost.visibility = .collapsed
 
@@ -367,17 +330,18 @@ class MainWindow: Window, @unchecked Sendable {
 
         tabView.selectionChanged.addHandler { [weak self] _, _ in
             guard let self = self else { return }
-            if self.isSingleTabMode { return } // 单 tab 模式不看 TabView selection
+            if self.isSingleTabMode { return }
 
             guard let tab = self.tabView.selectedItem as? TabViewItem else { return }
-            if let raw = tab.tag as? String, let cat = self.findCategory(byRawValue: raw) {
-                self.currentPageTextBlock.text = cat.text
-                self.selectNavigationItem(for: cat)
+            if let raw = tab.tag as? String {
+                let displayName = self.getDisplayName(for: raw)
+                self.currentPageTextBlock.text = displayName
+                self.selectNavigationItemByRaw(raw)
             }
         }
     }
 
-    // MARK: - 单/多 tab 显示逻辑（不搬 UIElement，只重建页面）
+    // MARK: - 单/多 tab 显示逻辑
 
     private func updateTabVisibilityAndSingleHost() {
         guard let items = tabView.tabItems else { return }
@@ -396,20 +360,15 @@ class MainWindow: Window, @unchecked Sendable {
     }
 
     private func syncSingleHostFromSelectedTab() {
-        // 单 tab 显示：用“页面新实例”，避免同一 UIElement 复挂导致崩溃
-        let cat = currentSelectedCategoryFallback()
-        singleFrameHost.content = createPage(for: cat)
-        currentPageTextBlock.text = cat.text
-        selectNavigationItem(for: cat)
-    }
-
-    private func currentSelectedCategoryFallback() -> any Category {
         if let tab = tabView.selectedItem as? TabViewItem,
-           let raw = tab.tag as? String,
-           let cat = findCategory(byRawValue: raw) {
-            return cat
+           let raw = tab.tag as? String {
+            singleFrameHost.content = createPageByRaw(raw)
+            currentPageTextBlock.text = getDisplayName(for: raw)
+            selectNavigationItemByRaw(raw)
+        } else {
+            singleFrameHost.content = HomePage()
+            currentPageTextBlock.text = "Home"
         }
-        return viewModel.selectedCategory
     }
 
     // MARK: - Frame / Tab 维护
@@ -425,24 +384,23 @@ class MainWindow: Window, @unchecked Sendable {
         guard let items = tabView.tabItems else { return }
 
         if items.size == 0 {
-            let home = MainCategory.home
             let tab = TabViewItem()
-            tab.header = home.text
-            tab.tag = home.rawValue
+            tab.header = "Home"
+            tab.tag = "home"
 
             let iconSource = FontIconSource()
-            iconSource.glyph = home.glyph
+            iconSource.glyph = "\u{E80F}"
             tab.iconSource = iconSource
 
             let frame = Frame()
-            frame.content = createPage(for: home)
+            frame.content = HomePage()
             tab.content = frame
 
             tab.isClosable = true
 
             tabView.tabItems.append(tab)
             tabView.selectedItem = tab
-            currentPageTextBlock.text = home.text
+            currentPageTextBlock.text = "Home"
         } else if tabView.selectedItem == nil {
             if let first = items.getAt(0) as? TabViewItem {
                 tabView.selectedItem = first
@@ -450,227 +408,272 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    private func showInCurrentTab(_ category: any Category) {
+    private func showInCurrentTab(raw: String, displayName: String, glyph: String?) {
         ensureAtLeastOneTab()
         guard let tab = tabView.selectedItem as? TabViewItem else { return }
 
-        tab.header = category.text
-        tab.tag = category.rawValue
+        tab.header = displayName
+        tab.tag = raw
 
-        if let main = category as? MainCategory {
+        if let glyph = glyph {
             let iconSource = FontIconSource()
-            iconSource.glyph = main.glyph
+            iconSource.glyph = glyph
             tab.iconSource = iconSource
         } else {
             tab.iconSource = nil
         }
 
         let frame = getOrCreateFrame(in: tab)
-        frame.content = createPage(for: category)
+        frame.content = createPageByRaw(raw)
 
-        // ✅ 单 tab 模式同时刷新 singleFrameHost（用新实例）
         if isSingleTabMode {
-            singleFrameHost.content = createPage(for: category)
+            singleFrameHost.content = createPageByRaw(raw)
         }
 
-        currentPageTextBlock.text = category.text
+        currentPageTextBlock.text = displayName
     }
 
-    private func openNewTab(for category: any Category) {
+    private func openNewTab(raw: String, displayName: String, glyph: String?) {
         let tab = TabViewItem()
-        tab.header = category.text
-        tab.tag = category.rawValue
+        tab.header = displayName
+        tab.tag = raw
 
-        if let main = category as? MainCategory {
+        if let glyph = glyph {
             let iconSource = FontIconSource()
-            iconSource.glyph = main.glyph
+            iconSource.glyph = glyph
             tab.iconSource = iconSource
         }
 
         let frame = Frame()
-        frame.content = createPage(for: category)
+        frame.content = createPageByRaw(raw)
         tab.content = frame
 
         tab.isClosable = true
 
         tabView.tabItems.append(tab)
         tabView.selectedItem = tab
-        currentPageTextBlock.text = category.text
+        currentPageTextBlock.text = displayName
 
-        // ✅ 多 tab 了，显示 TabView
         updateTabVisibilityAndSingleHost()
     }
+    
+    // MARK: - Settings 处理
+    
+    private func openSettingsInCurrentTab() {
+        showInCurrentTab(raw: "settings", displayName: "Settings", glyph: "\u{E713}")
+    }
+    
+    private func openSettingsInNewTab() {
+        openNewTab(raw: "settings", displayName: "Settings", glyph: "\u{E713}")
+    }
 
-    // MARK: - 页面创建（保持你原来的 switch）
-
-    private func createPage(for category: any Category) -> UIElement {
-        switch category {
-        case MainCategory.home:
+    // MARK: - String到页面的映射
+    
+    private func createPageByRaw(_ raw: String) -> UIElement {
+        switch raw {
+        case "home":
             return HomePage()
-        case MainCategory.all:
+        case "all":
             return AllPage()
+        case "settings":
+            return SettingsPage()
         
-        case FundamentalsCategory.resources:
+        case "resources":
             return ResourcesPage()
-        case FundamentalsCategory.style:
+        case "style":
             return StylesPage()
-        case FundamentalsCategory.templates:
+        case "templates":
             return TemplatesPage()
-        case FundamentalsCategory.customUserControls:
+        case "customUserControls":
             return CustomUserControlsPage()
-        case FundamentalsCategory.binding:
+        case "binding":
             return BindingPage()
-        case FundamentalsCategory.scratchPad:
+        case "scratchPad":
             return ScratchPadPage()
 
-        case CollectionsCategory.listView:
+        case "listView":
             return ListViewPage()
-        case CollectionsCategory.flipView:
+        case "flipView":
             return FlipViewPage()
-        case CollectionsCategory.gridView:
+        case "gridView":
             return GridViewPage()
-        case CollectionsCategory.listBox:
+        case "listBox":
             return ListBoxPage()
-        case CollectionsCategory.pullToRefresh:
+        case "pullToRefresh":
             return PullToRefreshPage()
-        case CollectionsCategory.treeView:
+        case "treeView":
             return TreeViewPage()
 
-        case ScrollingCategory.annotatedScrollBar:
+        case "annotatedScrollBar":
             return AnnotatedScrollBarPage()
-        case ScrollingCategory.pipsPager:
+        case "pipsPager":
             return PipsPagerPage()
-        case ScrollingCategory.scrollView:
+        case "scrollView":
             return ScrollViewPage()
-        case ScrollingCategory.scrollViewer:
+        case "scrollViewer":
             return ScrollViewerPage()
-        case ScrollingCategory.semanticZoom:
+        case "semanticZoom":
             return SemanticZoomPage()
 
-        case LayoutCategory.grid:
+        case "grid":
             return GridPage()
-        case LayoutCategory.border:
+        case "border":
             return BorderPage()
-        case LayoutCategory.canvas:
+        case "canvas":
             return CanvasPage()
-        case LayoutCategory.expander:
+        case "expander":
             return ExpanderPage()
-        case LayoutCategory.radioButtons:
+        case "radioButtons":
             return RadioButtonsPage()
-        case LayoutCategory.relativePanel:
+        case "relativePanel":
             return RelativePanelPage()
-        case LayoutCategory.stackPanel:
+        case "stackPanel":
             return StackPanelPage()
-        case LayoutCategory.variableSizedWrapGrid:
+        case "variableSizedWrapGrid":
             return variableGridPage()
-        case LayoutCategory.viewBox:
+        case "viewBox":
             return ViewBoxPage()
 
-        case NavigationViewCategory.breadcrumbBar:
+        case "breadcrumbBar":
             return BreadcrumbBarPage()
-        case NavigationViewCategory.navigationView:
+        case "navigationView":
             return NavigationViewPage()
-        case NavigationViewCategory.pivot:
+        case "pivot":
             return PivotPage()
-        case NavigationViewCategory.selectorBar:
+        case "selectorBar":
             return SelectorBarPage()
-        case NavigationViewCategory.tabView:
+        case "tabView":
             return TabViewPage()
 
-        case MenusToolbarsCategory.appBarButton:
+        case "appBarButton":
             return AppBarButtonPage()
-        case MenusToolbarsCategory.appBarSeparator:
+        case "appBarSeparator":
             return AppBarSeparatorPage()
-        case MenusToolbarsCategory.appBarToggleButton:
+        case "appBarToggleButton":
             return AppBarToggleButtonPage()
-        case MenusToolbarsCategory.commandBar:
+        case "commandBar":
             return CommandBarPage()
-        case MenusToolbarsCategory.commandBarFlyout:
+        case "commandBarFlyout":
             return CommandBarFlyoutPage()
 
-        case MediaCategory.image:
+        case "image":
             return ImagePage()
-        case MediaCategory.personPicture:
+        case "personPicture":
             return PersonPicturePage()
-        case MediaCategory.webView2:
+        case "webView2":
             return WebView2Page()
 
-        case WindowingCategory.titleBar:
-            return TitlebarPage()
+        case "titleBar":
+            let placeholder = Grid()
+            let text = TextBlock()
+            text.text = "TitleBar Page\n\n(Not available in MSIX package)"
+            text.fontSize = 16
+            text.horizontalAlignment = .center
+            text.verticalAlignment = .center
+            text.textAlignment = .center
+            placeholder.children.append(text)
+            return placeholder
 
-        case SystemCategory.filePicker:
+        case "filePicker":
             return StoragePickersPage()
-        case SystemCategory.appNotifications:
+        case "appNotifications":
             return AppNotificationsPage()
-        case SystemCategory.badgeNotifications:
+        case "badgeNotifications":
             return BadgeNotificationsPage()
 
-        case DialogsFlyoutsCategory.contentDialog:
+        case "contentDialog":
             return ContentDialogPage()
-        case DialogsFlyoutsCategory.flyout:
+        case "flyout":
             return FlyoutPage()
-        case DialogsFlyoutsCategory.popup:
+        case "popup":
             return PopupPage()
-        case DialogsFlyoutsCategory.teachingTip:
+        case "teachingTip":
             return TeachingTipPage()
 
-        case DateTimeCategory.calendarDatePicker:
+        case "calendarDatePicker":
             return CalendarDatePickerPage()
-        case DateTimeCategory.calendarView:
+        case "calendarView":
             return CalendarViewPage()
-        case DateTimeCategory.datePicker:
+        case "datePicker":
             return DatePickerPage()
-        case DateTimeCategory.timePicker:
+        case "timePicker":
             return TimePickerPage()
 
-        case StatusInfoCategory.infoBadge:
+        case "infoBadge":
             return InfoBadgePage()
-        case StatusInfoCategory.infoBar:
+        case "infoBar":
             return InfoBarPage()
-        case StatusInfoCategory.progressBar:
+        case "progressBar":
             return ProgressBarPage()
-        case StatusInfoCategory.progressRing:
+        case "progressRing":
             return ProgressRingPage()
-        case StatusInfoCategory.toolTip:
+        case "toolTip":
             return ToolTipPage()
 
-        case TextCategory.autoSuggestBox:
+        case "autoSuggestBox":
             return AutoSuggestBoxPage()
-        case TextCategory.numberBox:
+        case "numberBox":
             return NumberBoxPage()
-        case TextCategory.passwordBox:
+        case "passwordBox":
             return PasswordBoxPage()
-        case TextCategory.richEditBox:
+        case "richEditBox":
             return RichEditBoxPage()
-        case TextCategory.richTextBlock:
+        case "richTextBlock":
             return RichTextBlockPage()
-        case TextCategory.textBlock:
+        case "textBlock":
             return TextBlockPage()
-        case TextCategory.textBox:
+        case "textBox":
             return TextBoxPage()
 
-        case StylesCategory.AcrylicBrush:
+        case "AcrylicBrush":
             return AcrylicBrushPage()
-        case StylesCategory.animatedIcon:
+        case "animatedIcon":
             return AnimatedIconPage()
-        case StylesCategory.compactSizing:
+        case "compactSizing":
             return CompactSizingPage()
-        case StylesCategory.iconElement:
+        case "iconElement":
             return IconElementPage()
-        case StylesCategory.line:
+        case "line":
             return LinePage()
-        case StylesCategory.shape:
+        case "shape":
             return ShapePage()
-        case StylesCategory.radialGradientBrush:
+        case "radialGradientBrush":
             return RadialGradientBrushPage()
-        case StylesCategory.systemBackdropsMicaAcrylic:
+        case "systemBackdropsMicaAcrylic":
             return SystemBackdropsPage()
-        case StylesCategory.themeShadow:
+        case "themeShadow":
             return ThemeShadowPage()
 
         default:
-            return Grid()
+            let placeholder = Grid()
+            let text = TextBlock()
+            text.text = "Page: \(raw)\n\n(Not implemented yet)"
+            text.fontSize = 16
+            text.horizontalAlignment = .center
+            text.verticalAlignment = .center
+            text.textAlignment = .center
+            text.textWrapping = .wrap
+            placeholder.children.append(text)
+            return placeholder
         }
+    }
+    
+    private func getDisplayName(for raw: String) -> String {
+        if raw == "settings" { return "Settings" }
+        
+        if let cat = findCategory(byRawValue: raw) {
+            return cat.text
+        }
+        return raw.capitalized
+    }
+    
+    private func getGlyph(for raw: String) -> String? {
+        if raw == "settings" { return "\u{E713}" }
+        
+        if let cat = findCategory(byRawValue: raw) as? MainCategory {
+            return cat.glyph
+        }
+        return nil
     }
 
     // MARK: - Category 查找
@@ -708,9 +711,7 @@ class MainWindow: Window, @unchecked Sendable {
 
     // MARK: - 同步左侧选中
 
-    private func selectNavigationItem(for category: any Category) {
-        let raw = category.rawValue
-
+    private func selectNavigationItemByRaw(_ raw: String) {
         for anyItem in navigationView.menuItems {
             guard let item = anyItem as? NavigationViewItem else { continue }
 
@@ -729,7 +730,7 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    // MARK: - 导航历史（Back/Forward）
+    // MARK: - 导航历史
 
     private func updateNavButtonsState() {
         backButton.isEnabled = stack.count > 1
@@ -738,7 +739,7 @@ class MainWindow: Window, @unchecked Sendable {
 
     private func seedInitialHistoryIfNeeded() {
         if stack.isEmpty {
-            stack = [viewModel.selectedCategory]
+            stack = ["home"]
             forwardStack.removeAll()
             updateNavButtonsState()
         }
@@ -749,43 +750,76 @@ class MainWindow: Window, @unchecked Sendable {
         let current = stack.removeLast()
         forwardStack.append(current)
 
-        let previous = stack.last ?? MainCategory.home
-        viewModel.navigateCommand.execute(parameter: previous)
+        let previous = stack.last ?? "home"
+        
+        let displayName = getDisplayName(for: previous)
+        let glyph = getGlyph(for: previous)
+        showInCurrentTab(raw: previous, displayName: displayName, glyph: glyph)
         updateNavButtonsState()
     }
 
     private func navigateForward() {
         guard let next = forwardStack.popLast() else { return }
         stack.append(next)
-        viewModel.navigateCommand.execute(parameter: next)
+        
+        let displayName = getDisplayName(for: next)
+        let glyph = getGlyph(for: next)
+        showInCurrentTab(raw: next, displayName: displayName, glyph: glyph)
         updateNavButtonsState()
     }
 
-    // MARK: - ViewModel 绑定（用 itemInvoked 做导航）
+    // MARK: - ViewModel 绑定
 
     func bindViewModel() {
-        navigationView.itemInvoked.addHandler { [unowned self] _, args in
+        navigationView.selectionChanged.addHandler { [weak self] _, _ in
+            guard let self = self else { return }
+            
+            if let selected = self.navigationView.selectedItem {
+                let itemName = (selected as? NavigationViewItem)?.name ?? ""
+                
+                if itemName == "SettingsItem" || itemName.isEmpty {
+                    let hasTag = (selected as? NavigationViewItem)?.tag != nil
+                    if !hasTag {
+                        if self.openInNewTabRequested {
+                            self.openSettingsInNewTab()
+                            self.openInNewTabRequested = false
+                        } else {
+                            self.openSettingsInCurrentTab()
+                            self.openInNewTabRequested = false
+                        }
+                        return
+                    }
+                }
+            }
+        }
+        
+        navigationView.itemInvoked.addHandler { [weak self] _, args in
+            guard let self = self else { return }
             guard let args = args else { self.openInNewTabRequested = false; return }
             guard let container = args.invokedItemContainer as? NavigationViewItem else { self.openInNewTabRequested = false; return }
             guard let tag = (container.tag as? Uri)?.host else { self.openInNewTabRequested = false; return }
-            guard let category = self.findCategory(byRawValue: tag) else { self.openInNewTabRequested = false; return }
-            if !category.canSelect { self.openInNewTabRequested = false; return }
-
-            // ✅ 关键修复：第一次能回退到 Home（保证 stack 里有初始项）
+            
             self.seedInitialHistoryIfNeeded()
 
             self.forwardStack.removeAll()
-            self.stack.append(category)
-            self.viewModel.navigateCommand.execute(parameter: category)
+            self.stack.append(tag)
+            
+            let displayName = self.getDisplayName(for: tag)
+            let glyph = self.getGlyph(for: tag)
+            
+            if self.openInNewTabRequested {
+                self.openNewTab(raw: tag, displayName: displayName, glyph: glyph)
+                self.openInNewTabRequested = false
+            } else {
+                self.showInCurrentTab(raw: tag, displayName: displayName, glyph: glyph)
+                self.openInNewTabRequested = false
+            }
+            
             self.updateNavButtonsState()
         }
 
         if let firstItem = navigationView.menuItems.first {
             navigationView.selectedItem = firstItem
-        }
-
-        viewModel.propertyChanged = { [unowned self] propertyName in
-            self.handlePropertyChanged(propertyName)
         }
 
         NotificationCenter.default.addObserver(
@@ -801,35 +835,8 @@ class MainWindow: Window, @unchecked Sendable {
             }
         }
 
-        handlePropertyChanged("selectedCategory")
         seedInitialHistoryIfNeeded()
-    }
-
-    private func handlePropertyChanged(_ propertyName: String) {
-        switch propertyName {
-        case "selectedCategory":
-            let item: any Category = viewModel.selectedCategory
-            currentPageTextBlock.text = item.text
-
-            if openInNewTabRequested {
-                openNewTab(for: item)
-            } else {
-                showInCurrentTab(item)
-            }
-
-            // ✅ 用完就复位，避免影响下一次点击
-            openInNewTabRequested = false
-
-            selectNavigationItem(for: item)
-
-            // ✅ 选中页变化时，如果是单 tab 模式，刷新 single host
-            if isSingleTabMode {
-                syncSingleHostFromSelectedTab()
-            }
-
-        default:
-            break
-        }
+        showInCurrentTab(raw: "home", displayName: "Home", glyph: "\u{E80F}")
     }
 
     deinit {

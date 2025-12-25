@@ -91,7 +91,8 @@ open class HomePage: Grid {
         headerPanel.spacing = 8
         
         let sdkText = TextBlock()
-        sdkText.text = "Windows App SDK \(ReleaseInfo.asString)"
+        // 修复：硬编码版本号，不使用 ReleaseInfo.asString
+        sdkText.text = "Windows App SDK 1.7"
         sdkText.fontSize = 14
         sdkText.opacity = 0.6
         headerPanel.children.append(sdkText)
