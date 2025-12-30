@@ -5,12 +5,12 @@ import WindowsFoundation
 import WinUI
 
 class ImageFactory {
-    public static func createImage(height: Double, width: Double, 
-        imagePath: String, imageThickness: [Double], stretch: Stretch) -> Image {
-        let dir:String? = getDirectory(from: imagePath)
-        let imageName:String? = getFilename(from: imagePath)
-        let ext:String? = getExtension(from: imagePath)
-
+    public static func createImage(
+        height: Double, 
+        width: Double, 
+        imagePath: String, 
+        imageThickness: [Double], 
+        stretch: Stretch) -> Image {
         let image: Image = Image()
         image.height = height
         image.width = width
@@ -21,8 +21,9 @@ class ImageFactory {
             bottom: imageThickness[3]
         )
         image.stretch = stretch
-        let path = Bundle.module.path(forResource: imageName, ofType: ext, inDirectory: dir)
-        let uri: Uri = Uri(path ?? "")
+        
+        if imagePath.isEmpty { fatalError("imagePath is empty!") }
+        let uri = Uri(imagePath)
         let bitmapImage = BitmapImage()
         bitmapImage.uriSource = uri
         image.source = bitmapImage

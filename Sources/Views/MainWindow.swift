@@ -5,11 +5,9 @@ import WindowsFoundation
 import WinUI
 
 class MainWindow: Window, @unchecked Sendable {
-    // MARK: - Properties
 
     private let viewModel: MainWindowViewModel
 
-    /// 是否在 MSIX 打包环境下运行（避免 TitleBar / Category / ReleaseInfo 冲突）
     private static let isMSIX: Bool = ProcessInfo.processInfo.environment["APPX_PACKAGE_FAMILY_NAME"] != nil
 
     private var rootGrid: Grid
@@ -17,7 +15,6 @@ class MainWindow: Window, @unchecked Sendable {
     private var navigationView: NavigationView
     private var tabView: TabView
 
-    // ✅ 单 tab 模式显示用（不做 UIElement 搬家，只显示“新实例页面”）
     private var singleFrameHost: Frame
     private var contentHost: Grid
     private var isSingleTabMode: Bool = false
@@ -30,11 +27,13 @@ class MainWindow: Window, @unchecked Sendable {
     private var backButton: Button
     private var stack: [any Category] = []
     
-
-    /// ✅ 由 NavigationViewItem.pointerPressed 捕获 Ctrl 状态
+    private var tbCurrentPageHost: Border?
+    private var tbDragGap: Border?
+    private var tbDragFiller: Border?
+    private var tbNavButtonsHost: StackPanel?
+    private var tbContentGrid: Grid?
     private var openInNewTabRequested: Bool = false
 
-    // MARK: - Initialization
     override init() {
         self.viewModel = MainWindowViewModel()
         self.rootGrid = Grid()
@@ -60,7 +59,6 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    // MARK: - UI 搭建
 
     func setupUI() {
         self.title = "Swift WinUI3 Gallery"
@@ -84,13 +82,178 @@ class MainWindow: Window, @unchecked Sendable {
         setupRootGrid()
 
         if Self.isMSIX {
-            // MSIX 下禁用自定义 TitleBar / Category 导航，避免已知冲突
             return
         }
 
         setupTitleBar()
         setupNavigationView()
     }
+    private func setupTitleBar() {
+        let appTitleBar = Grid()
+        appTitleBar.name = "AppTitleBar"
+        appTitleBar.height = 48
+        appTitleBar.verticalAlignment = .stretch
+        appTitleBar.horizontalAlignment = .stretch
+
+        appTitleBar.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
+
+        let captionButtonsReservedWidth: Double = 140
+        appTitleBar.padding = Thickness(left: 0, top: 0, right: captionButtonsReservedWidth, bottom: 0)
+
+        let c0 = ColumnDefinition(); c0.width = GridLength(value: 1, gridUnitType: .auto)
+        let c1 = ColumnDefinition(); c1.width = GridLength(value: 1, gridUnitType: .auto)
+        let c2 = ColumnDefinition(); c2.width = GridLength(value: 1, gridUnitType: .star)
+        let c3 = ColumnDefinition(); c3.width = GridLength(value: 1, gridUnitType: .auto)
+        let c4 = ColumnDefinition(); c4.width = GridLength(value: 1, gridUnitType: .auto)
+        appTitleBar.columnDefinitions.append(c0)
+        appTitleBar.columnDefinitions.append(c1)
+        appTitleBar.columnDefinitions.append(c2)
+        appTitleBar.columnDefinitions.append(c3)
+        appTitleBar.columnDefinitions.append(c4)
+
+        func makeMdl2Icon(_ glyph: String, fontSize: Double = 14) -> FontIcon {
+            let icon = FontIcon()
+            icon.glyph = glyph
+            icon.fontSize = fontSize
+            icon.verticalAlignment = .center
+            return icon
+        }
+
+        let paneButton = Button()
+        paneButton.content = makeMdl2Icon("\u{E700}")
+        paneButton.verticalAlignment = .center
+        paneButton.margin = Thickness(left: 8, top: 0, right: 4, bottom: 0)
+        paneButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
+        paneButton.isTabStop = false
+        let transparent = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
+        paneButton.useSystemFocusVisuals = false
+        paneButton.focusVisualPrimaryBrush = transparent
+        paneButton.focusVisualSecondaryBrush = transparent
+        paneButton.focusVisualPrimaryThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        paneButton.focusVisualSecondaryThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        paneButton.focusVisualMargin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        paneButton.resources["FocusVisualPrimaryBrush"] = transparent
+        paneButton.resources["FocusVisualSecondaryBrush"] = transparent
+        paneButton.resources["FocusVisualPrimaryThickness"] = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        paneButton.resources["FocusVisualSecondaryThickness"] = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        paneButton.resources["FocusVisualMargin"] = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+
+        paneButton.background = transparent
+        paneButton.borderBrush = transparent
+
+        paneButton.resources["ButtonBackground"] = transparent
+        paneButton.resources["ButtonBackgroundPointerOver"] = transparent
+        paneButton.resources["ButtonBackgroundPressed"] = transparent
+        paneButton.resources["ButtonBackgroundDisabled"] = transparent
+
+        paneButton.resources["ButtonBorderBrush"] = transparent
+        paneButton.resources["ButtonBorderBrushPointerOver"] = transparent
+        paneButton.resources["ButtonBorderBrushPressed"] = transparent
+        paneButton.resources["ButtonBorderBrushDisabled"] = transparent
+
+        paneButton.click.addHandler { [weak self] _, _ in
+            guard let self = self else { return }
+            self.navigationView.isPaneOpen.toggle()
+        }
+
+        appTitleBar.children.append(paneButton)
+        try? Grid.setColumn(paneButton, 0)
+
+        let subtitleReservedWidth: Double = 200
+        let navButtonsLeftGap: Double = 0
+
+        let appIcon = createImage(
+            height: 16,
+            width: 16,
+            imagePath: Bundle.module.path(
+                forResource: "GalleryIcon",
+                ofType: "ico",
+                inDirectory: "Assets/Tiles"
+            )!,
+            imageThickness: [8, 0, 8, 0]
+        )
+        appIcon.isHitTestVisible = false
+
+        let titleText = TextBlock()
+        titleText.text = "Swift WinUI 3 Gallery"
+        titleText.fontSize = 14
+        titleText.verticalAlignment = .center
+        titleText.isHitTestVisible = false
+
+        currentPageTextBlock.fontSize = 12
+        currentPageTextBlock.opacity = 0.75
+        currentPageTextBlock.verticalAlignment = .center
+        currentPageTextBlock.text = ""
+        currentPageTextBlock.width = subtitleReservedWidth
+        currentPageTextBlock.textTrimming = .characterEllipsis
+        currentPageTextBlock.margin = Thickness(left: 8, top: 0, right: 0, bottom: 0)
+        currentPageTextBlock.isHitTestVisible = false
+
+        backButton.content = makeMdl2Icon("\u{E72B}")
+        forwardButton.content = makeMdl2Icon("\u{E72A}")
+        backButton.verticalAlignment = .center
+        forwardButton.verticalAlignment = .center
+
+        backButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        forwardButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        backButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
+        forwardButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
+
+        backButton.click.addHandler { [weak self] _, _ in self?.navigateBack() }
+        forwardButton.click.addHandler { [weak self] _, _ in self?.navigateForward() }
+
+        let navButtonsStack = StackPanel()
+        navButtonsStack.orientation = .horizontal
+        navButtonsStack.verticalAlignment = .center
+        navButtonsStack.children.append(backButton)
+        navButtonsStack.children.append(forwardButton)
+        navButtonsStack.margin = Thickness(left: navButtonsLeftGap, top: 0, right: 0, bottom: 0)
+
+        let leftHeaderStack = StackPanel()
+        leftHeaderStack.orientation = .horizontal
+        leftHeaderStack.verticalAlignment = .center
+        leftHeaderStack.children.append(appIcon)
+        leftHeaderStack.children.append(titleText)
+        leftHeaderStack.children.append(currentPageTextBlock)
+        leftHeaderStack.children.append(navButtonsStack)
+
+        appTitleBar.children.append(leftHeaderStack)
+        try? Grid.setColumn(leftHeaderStack, 1)
+
+        controlsSearchBox.name = "controlsSearchBox"
+        controlsSearchBox.placeholderText = "Search controls and samples..."
+        controlsSearchBox.verticalAlignment = .center
+        controlsSearchBox.minWidth = 320
+
+        appTitleBar.children.append(controlsSearchBox)
+        try? Grid.setColumn(controlsSearchBox, 3)
+
+        let avatar = Border()
+        avatar.width = 32
+        avatar.height = 32
+        avatar.cornerRadius = CornerRadius(topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 16)
+        avatar.verticalAlignment = .center
+        avatar.margin = Thickness(left: 12, top: 0, right: 12, bottom: 0)
+        avatar.background = SolidColorBrush(Color(a: 255, r: 240, g: 240, b: 240))
+        avatar.isHitTestVisible = false
+
+        let avatarText = TextBlock()
+        avatarText.text = "PP"
+        avatarText.verticalAlignment = .center
+        avatarText.horizontalAlignment = .center
+        avatarText.fontSize = 12
+        avatarText.isHitTestVisible = false
+        avatar.child = avatarText
+
+        appTitleBar.children.append(avatar)
+        try? Grid.setColumn(avatar, 4)
+
+        rootGrid.children.append(appTitleBar)
+        try? Grid.setRow(appTitleBar, 0)
+
+        try? self.setTitleBar(appTitleBar)
+    }
+
 
     private func setupRootGrid() {
         rootGrid.name = "RootGrid"
@@ -106,9 +269,7 @@ class MainWindow: Window, @unchecked Sendable {
     }
 
 
-    /// MSIX 打包运行的最小 UI：只展示 Home，避免 TitleBar / Category / ReleaseInfo 冲突导致的闪退
     private func setupMSIXFallbackUI() {
-        // rootGrid 第一行高度已设为 0，仅显示内容区
         let frame = Frame()
         frame.content = HomePage()
         rootGrid.children.append(frame)
@@ -116,6 +277,7 @@ class MainWindow: Window, @unchecked Sendable {
 
         self.title = "Swift WinUI3 Gallery"
     }
+
 
     private func createImage(
         height: Double,
@@ -145,149 +307,55 @@ class MainWindow: Window, @unchecked Sendable {
         return image
     }
 
-    private func setupTitleBar() {
-        guard let titleBar = self.titleBar else { return }
-
-        titleBar.name = "TitleBar"
-        titleBar.title = ""
-
-        titleBar.isBackButtonVisible = false
-        titleBar.isPaneToggleButtonVisible = true
-
-        titleBar.paneToggleRequested.addHandler { [weak self] _, _ in
-            guard let self = self else { return }
-            self.navigationView.isPaneOpen.toggle()
-        }
-
-        let subtitleReservedWidth: Double = 200
-        let navButtonsLeftGap: Double = 8
-
-        let appIcon = createImage(
-            height: 16,
-            width: 16,
-            imagePath: Bundle.module.path(
-                forResource: "GalleryIcon",
-                ofType: "ico",
-                inDirectory: "Assets/Tiles"
-            )!,
-            imageThickness: [8, 0, 8, 0]
-        )
-
-        let titleText = TextBlock()
-        titleText.text = "Swift WinUI 3 Gallery"
-        titleText.fontSize = 14
-        titleText.verticalAlignment = .center
-
-        currentPageTextBlock.fontSize = 12
-        currentPageTextBlock.opacity = 0.75
-        currentPageTextBlock.verticalAlignment = .center
-        currentPageTextBlock.text = ""
-
-        currentPageTextBlock.width = subtitleReservedWidth
-        currentPageTextBlock.textTrimming = .characterEllipsis
-        currentPageTextBlock.margin = Thickness(left: 8, top: 0, right: 0, bottom: 0)
-
-        func makeMdl2Icon(_ glyph: String, fontSize: Double = 12) -> FontIcon {
-            let icon = FontIcon()
-            icon.glyph = glyph
-            icon.fontSize = fontSize
-            icon.verticalAlignment = .center
-            return icon
-        }
-
-        backButton.content = makeMdl2Icon("\u{E72B}")
-        forwardButton.content = makeMdl2Icon("\u{E72A}")
-
-        backButton.verticalAlignment = .center
-        forwardButton.verticalAlignment = .center
-
-        backButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
-        forwardButton.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
-
-        backButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
-        forwardButton.padding = Thickness(left: 10, top: 6, right: 10, bottom: 6)
-
-        backButton.isEnabled = false
-        forwardButton.isEnabled = false
-
-        backButton.click.addHandler { [weak self] _, _ in self?.navigateBack() }
-        forwardButton.click.addHandler { [weak self] _, _ in self?.navigateForward() }
-
-        let navButtonsStack = StackPanel()
-        navButtonsStack.orientation = .horizontal
-        navButtonsStack.verticalAlignment = .center
-        navButtonsStack.children.append(backButton)
-        navButtonsStack.children.append(forwardButton)
-
-        navButtonsStack.margin = Thickness(left: navButtonsLeftGap, top: 0, right: 0, bottom: 0)
-
-        let leftHeaderStack = StackPanel()
-        leftHeaderStack.orientation = .horizontal
-        leftHeaderStack.verticalAlignment = .center
-        leftHeaderStack.children.append(appIcon)
-        leftHeaderStack.children.append(titleText)
-        leftHeaderStack.children.append(currentPageTextBlock)
-        leftHeaderStack.children.append(navButtonsStack)
-
-        titleBar.leftHeader = leftHeaderStack
-
-        controlsSearchBox.name = "controlsSearchBox"
-        controlsSearchBox.placeholderText = "Search controls and samples..."
-        controlsSearchBox.verticalAlignment = .center
-        controlsSearchBox.minWidth = 320
-
-        let contentGrid = Grid()
-        let cc0 = ColumnDefinition(); cc0.width = GridLength(value: 1, gridUnitType: .star) // drag region
-        let cc1 = ColumnDefinition(); cc1.width = GridLength(value: 1, gridUnitType: .auto) // search
-        contentGrid.columnDefinitions.append(cc0)
-        contentGrid.columnDefinitions.append(cc1)
-
-        let dragRegion = Border()
-        dragRegion.background = SolidColorBrush(Color(a: 0, r: 0, g: 0, b: 0))
-        dragRegion.verticalAlignment = .stretch
-        dragRegion.horizontalAlignment = .stretch
-
-        contentGrid.children.append(dragRegion)
-        try? Grid.setColumn(dragRegion, 0)
-
-        contentGrid.children.append(controlsSearchBox)
-        try? Grid.setColumn(controlsSearchBox, 1)
-
-        titleBar.content = contentGrid
-
-        let avatar = Border()
-        avatar.width = 32
-        avatar.height = 32
-        avatar.cornerRadius = CornerRadius(topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 16)
-        avatar.verticalAlignment = .center
-        avatar.background = SolidColorBrush(Color(a: 255, r: 240, g: 240, b: 240))
-
-        let avatarText = TextBlock()
-        avatarText.text = "PP"
-        avatarText.verticalAlignment = .center
-        avatarText.horizontalAlignment = .center
-        avatarText.fontSize = 12
-        avatar.child = avatarText
-
-        titleBar.rightHeader = avatar
-
-        rootGrid.children.append(titleBar)
-        try? Grid.setRow(titleBar, 0)
-
-        try? self.setTitleBar(titleBar)
-    }
-
-
-
-    // MARK: - Ctrl 检测
-
     private func updateCtrlFlagFromPointer(_ args: PointerRoutedEventArgs?) {
         guard let args = args else { return }
         let raw = Int(args.keyModifiers.rawValue)
         openInNewTabRequested = (raw & 0x1) != 0
     }
 
-    // MARK: - NavigationView + TabView
+    private func updateTitleBarDragRectangles() {
+        guard let appWindow = self.appWindow else { return }
+        guard let currentPageHost = self.tbCurrentPageHost,
+            let dragGap = self.tbDragGap,
+            let dragFiller = self.tbDragFiller else { return }
+
+        let scale = Double(self.rootGrid.xamlRoot?.rasterizationScale ?? 1.0)
+
+        func boundsInWindowPx(_ fe: FrameworkElement) -> RectInt32? {
+            do {
+                // 注意：transformToVisual 是 throws，并且返回 GeneralTransform?
+                guard let t = try fe.transformToVisual(nil) else { return nil }
+
+                // 注意：transformPoint 在你这个绑定里也是 throws
+                let p = try t.transformPoint(Point(x: 0, y: 0))
+
+                let wD = Double(fe.actualWidth) * scale
+                let hD = Double(fe.actualHeight) * scale
+                if wD <= 1 || hD <= 1 { return nil }
+
+                // p.x / p.y 是 Float，所以要转 Double 再乘 scale
+                let x = Int32(Double(p.x) * scale)
+                let y = Int32(Double(p.y) * scale)
+                let w = Int32(wD)
+                let h = Int32(hD)
+
+                return RectInt32(x: x, y: y, width: w, height: h)
+            } catch {
+                return nil
+            }
+        }
+
+        var rects: [RectInt32] = []
+        if let r = boundsInWindowPx(currentPageHost) { rects.append(r) }
+        if let r = boundsInWindowPx(dragGap) { rects.append(r) }
+        if let r = boundsInWindowPx(dragFiller) { rects.append(r) }
+
+        guard !rects.isEmpty else { return }
+
+        // setDragRectangles 也可能 throws，保险起见用 try?
+        try? appWindow.titleBar.setDragRectangles(rects)
+    }
+
 
     private func setupSubCategories(category: any Category, navigationViewItem: NavigationViewItem) {
         if category.subCategories.isEmpty { return }
@@ -307,6 +375,7 @@ class MainWindow: Window, @unchecked Sendable {
 
     private func setupNavigationView() {
         navigationView.paneDisplayMode = .auto
+        navigationView.compactModeThresholdWidth = 0 // 始终令navigationView不消失
         navigationView.isSettingsVisible = true
         navigationView.openPaneLength = 320
         navigationView.isBackButtonVisible = .collapsed
@@ -336,12 +405,10 @@ class MainWindow: Window, @unchecked Sendable {
         tabView.canReorderTabs = true
         tabView.allowDrop = true
 
-        // ✅ host：单 tab 时显示 singleFrameHost，多 tab 时显示 tabView
         contentHost = Grid()
         contentHost.children.append(tabView)
         contentHost.children.append(singleFrameHost)
 
-        // 默认先让 tabView 可见，后续 updateTabVisibility 决定
         tabView.visibility = .visible
         singleFrameHost.visibility = .collapsed
 
@@ -370,7 +437,7 @@ class MainWindow: Window, @unchecked Sendable {
 
         tabView.selectionChanged.addHandler { [weak self] _, _ in
             guard let self = self else { return }
-            if self.isSingleTabMode { return } // 单 tab 模式不看 TabView selection
+            if self.isSingleTabMode { return }
 
             guard let tab = self.tabView.selectedItem as? TabViewItem else { return }
             if let raw = tab.tag as? String, let cat = self.findCategory(byRawValue: raw) {
@@ -380,7 +447,6 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    // MARK: - 单/多 tab 显示逻辑（不搬 UIElement，只重建页面）
 
     private func updateTabVisibilityAndSingleHost() {
         guard let items = tabView.tabItems else { return }
@@ -399,7 +465,6 @@ class MainWindow: Window, @unchecked Sendable {
     }
 
     private func syncSingleHostFromSelectedTab() {
-        // 单 tab 显示：用“页面新实例”，避免同一 UIElement 复挂导致崩溃
         let cat = currentSelectedCategoryFallback()
         singleFrameHost.content = createPage(for: cat)
         currentPageTextBlock.text = cat.text
@@ -415,7 +480,6 @@ class MainWindow: Window, @unchecked Sendable {
         return viewModel.selectedCategory
     }
 
-    // MARK: - Frame / Tab 维护
 
     private func getOrCreateFrame(in tab: TabViewItem) -> Frame {
         if let frame = tab.content as? Frame { return frame }
@@ -471,7 +535,6 @@ class MainWindow: Window, @unchecked Sendable {
         let frame = getOrCreateFrame(in: tab)
         frame.content = createPage(for: category)
 
-        // ✅ 单 tab 模式同时刷新 singleFrameHost（用新实例）
         if isSingleTabMode {
             singleFrameHost.content = createPage(for: category)
         }
@@ -500,11 +563,9 @@ class MainWindow: Window, @unchecked Sendable {
         tabView.selectedItem = tab
         currentPageTextBlock.text = category.text
 
-        // ✅ 多 tab 了，显示 TabView
         updateTabVisibilityAndSingleHost()
     }
 
-    // MARK: - 页面创建（保持你原来的 switch）
 
     private func createPage(for category: any Category) -> UIElement {
         switch category {
@@ -691,7 +752,6 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    // MARK: - Category 查找
 
     private nonisolated(unsafe) static let categoryTypes: [any (RawRepresentable & Category).Type] = [
         MainCategory.self,
@@ -724,7 +784,6 @@ class MainWindow: Window, @unchecked Sendable {
         return nil
     }
 
-    // MARK: - 同步左侧选中
 
     private func selectNavigationItem(for category: any Category) {
         let raw = category.rawValue
@@ -747,7 +806,6 @@ class MainWindow: Window, @unchecked Sendable {
         }
     }
 
-    // MARK: - 导航历史（Back/Forward）
 
     private func updateNavButtonsState() {
         backButton.isEnabled = stack.count > 1
@@ -779,7 +837,6 @@ class MainWindow: Window, @unchecked Sendable {
         updateNavButtonsState()
     }
 
-    // MARK: - ViewModel 绑定（用 itemInvoked 做导航）
 
     func bindViewModel() {
         navigationView.itemInvoked.addHandler { [unowned self] _, args in
@@ -789,7 +846,6 @@ class MainWindow: Window, @unchecked Sendable {
             guard let category = self.findCategory(byRawValue: tag) else { self.openInNewTabRequested = false; return }
             if !category.canSelect { self.openInNewTabRequested = false; return }
 
-            // ✅ 关键修复：第一次能回退到 Home（保证 stack 里有初始项）
             self.seedInitialHistoryIfNeeded()
 
             self.forwardStack.removeAll()
@@ -835,7 +891,6 @@ class MainWindow: Window, @unchecked Sendable {
                 showInCurrentTab(item)
             }
 
-            // ✅ 用完就复位，避免影响下一次点击
             openInNewTabRequested = false
 
             selectNavigationItem(for: item)
