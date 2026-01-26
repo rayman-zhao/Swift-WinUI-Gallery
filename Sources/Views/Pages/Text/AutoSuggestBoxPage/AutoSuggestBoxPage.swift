@@ -3,6 +3,7 @@ import WinUI
 import WinSDK
 import UWP
 import WindowsFoundation
+import CppWinRT
 
 class AutoSuggestBoxPage: Page {
     private var pageRootGrid: Grid = Grid()
@@ -194,7 +195,6 @@ class AutoSuggestBoxPage: Page {
             let tokens = query
                 .split(separator: " ", omittingEmptySubsequences: true)
                 .map(String.init)
-            sender.items.clear()
             if tokens.isEmpty {
                 sender.isSuggestionListOpen = false
                 return
@@ -205,10 +205,7 @@ class AutoSuggestBoxPage: Page {
             }
             let suggestions = filtered.isEmpty ? ["No results found"] : filtered
             debugPrint("[AutoSuggestBoxPage--setupBody]: suggestions: \(suggestions)")
-            for suggestion in suggestions {
-                sender.items.append(suggestion)
-            }
-            sender.isSuggestionListOpen = true
+            sender.itemsSource = single_threaded_vector_inspectable(suggestions)
         }
 
         basicAutoSuggestbox.suggestionChosen.addHandler { _, args in

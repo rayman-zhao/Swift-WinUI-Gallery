@@ -15,6 +15,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/rayman-zhao/swift-cwinrt", branch: "main"),
         .package(url: "https://github.com/rayman-zhao/swift-windowsfoundation", branch: "main"),
+        .package(url: "https://github.com/rayman-zhao/swift-cppwinrt", branch: "main"),
         .package(url: "https://github.com/rayman-zhao/swift-uwp", branch: "main"),
         .package(url: "https://github.com/rayman-zhao/swift-windowsappsdk", branch: "main"),
         .package(url: "https://github.com/rayman-zhao/swift-winui", branch: "main"),
@@ -25,6 +26,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CWinRT", package: "swift-cwinrt"),
                 .product(name: "WindowsFoundation", package: "swift-windowsfoundation"),
+                .product(name: "CppWinRT", package: "swift-cppwinrt"),
                 .product(name: "UWP", package: "swift-uwp"),
                 .product(name: "WinAppSDK", package: "swift-windowsappsdk"),
                 .product(name: "WinUI", package: "swift-winui"),
